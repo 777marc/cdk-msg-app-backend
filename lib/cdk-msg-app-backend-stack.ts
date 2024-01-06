@@ -3,6 +3,7 @@ import { Construct } from "constructs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import { RemovalPolicy, CfnOutput } from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
+import * as ecr from "aws-cdk-lib/aws-ecr";
 
 export class CdkMsgAppBackendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -33,6 +34,10 @@ export class CdkMsgAppBackendStack extends cdk.Stack {
         },
       ],
       maxAzs: 3, // Default is all AZs in region
+    });
+
+    const repository = new ecr.Repository(this, "workshop-api", {
+      repositoryName: "workshop-api",
     });
 
     new CfnOutput(this, "TableName", { value: table.tableName });
