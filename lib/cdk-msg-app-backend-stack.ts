@@ -4,6 +4,8 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import { RemovalPolicy, CfnOutput } from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecr from "aws-cdk-lib/aws-ecr";
+import * as ecs from "aws-cdk-lib/aws-ecs";
+import * as iam from "aws-cdk-lib/aws-iam";
 
 export class CdkMsgAppBackendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -38,6 +40,55 @@ export class CdkMsgAppBackendStack extends cdk.Stack {
 
     const repository = new ecr.Repository(this, "workshop-api", {
       repositoryName: "workshop-api",
+    });
+
+    const cluster = new ecs.Cluster(this, "MyCluster", {
+      vpc: vpc,
+    });
+
+    const executionRolePolicy = new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      resources: ["*"],
+      actions: [
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+      ],
+    });
+
+    const fargateTaskDefinition = new ecs.FargateTaskDefinition(
+      this,
+      "ApiTaskDefinition",
+      {
+        memoryLimitMiB: 512,
+        cpu: 256,
+      }
+    );
+    fargateTaskDefinition.addToExecutionRolePolicy(executionRolePolicy);
+    fargateTaskDefinition.addToTaskRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        resources: [table.tableArn],
+        actions: ["dynamodb:*"],
+      })
+    );
+
+    const container = fargateTaskDefinition.addContainer("backend", {
+      // Use an image from Amazon ECR
+      image: ecs.ContainerImage.fromRegistry(repository.repositoryUri),
+      logging: ecs.LogDrivers.awsLogs({ streamPrefix: "workshop-api" }),
+      environment: {
+        DYNAMODB_MESSAGES_TABLE: table.tableName,
+        APP_ID: "my-app",
+      },
+      // ... other options here ...
+    });
+
+    container.addPortMappings({
+      containerPort: 3000,
     });
 
     new CfnOutput(this, "TableName", { value: table.tableName });
