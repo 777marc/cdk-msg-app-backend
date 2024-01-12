@@ -6,6 +6,9 @@ import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as ecs_patterns from "aws-cdk-lib/aws-ecs-patterns";
+import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import { Duration } from "aws-cdk-lib";
 
 export class CdkMsgAppBackendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -90,6 +93,45 @@ export class CdkMsgAppBackendStack extends cdk.Stack {
     container.addPortMappings({
       containerPort: 3000,
     });
+
+    const sg_service = new ec2.SecurityGroup(this, "MySGService", { vpc: vpc });
+    sg_service.addIngressRule(ec2.Peer.ipv4("0.0.0.0/0"), ec2.Port.tcp(3000));
+
+    const service = new ecs.FargateService(this, "Service", {
+      cluster,
+      taskDefinition: fargateTaskDefinition,
+      desiredCount: 2,
+      assignPublicIp: false,
+      securityGroups: [sg_service],
+    });
+
+    // Setup AutoScaling policy
+    const scaling = service.autoScaleTaskCount({
+      maxCapacity: 6,
+      minCapacity: 2,
+    });
+    scaling.scaleOnCpuUtilization("CpuScaling", {
+      targetUtilizationPercent: 50,
+      scaleInCooldown: Duration.seconds(60),
+      scaleOutCooldown: Duration.seconds(60),
+    });
+
+    const lb = new elbv2.ApplicationLoadBalancer(this, "ALB", {
+      vpc,
+      internetFacing: true,
+    });
+
+    const listener = lb.addListener("Listener", {
+      port: 80,
+    });
+
+    listener.addTargets("Target", {
+      port: 80,
+      targets: [service],
+      healthCheck: { path: "/api/" },
+    });
+
+    listener.connections.allowDefaultPortFromAnyIpv4("Open to the world");
 
     new CfnOutput(this, "TableName", { value: table.tableName });
   }
